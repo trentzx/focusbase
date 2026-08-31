@@ -613,6 +613,8 @@ function App() {
           </div>
 
           <PullRequestsPanel index={3} />
+          <CalendarPanel index={4} />
+          <NotesPanel index={5} />
         </main>
 
         <footer className="system-footer">
@@ -1041,6 +1043,251 @@ function GitHubPRRow({ pr, showRepo, showAuthor, onHide }) {
 
 function GitHubRepositorySummary({ repository }) {
   return <a className="github-repository-summary" href={`https://github.com/${repository.name}/pulls`} target="_blank" rel="noreferrer"><span className="github-pr-icon accent-text" aria-hidden="true">♧</span><span><strong>{repository.name}</strong><small>{repository.pullRequests.length} open PRs · showing repository instead</small></span><span className="github-external" aria-hidden="true">↗</span></a>
+}
+
+const CALENDAR_CLIENT_ID_KEY = 'start.calendar.clientId'
+const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
+let gisScriptPromise = null
+
+function loadGoogleIdentityScript() {
+  if (window.google?.accounts?.oauth2) return Promise.resolve()
+  if (!gisScriptPromise) {
+    gisScriptPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script')
+      script.src = 'https://accounts.google.com/gsi/client'
+      script.async = true
+      script.defer = true
+      script.onload = () => resolve()
+      script.onerror = () => reject(new Error('Could not load Google Identity Services. Check your connection and try again.'))
+      document.head.appendChild(script)
+    })
+  }
+  return gisScriptPromise
+}
+
+function readCalendarClientId() {
+  try {
+    return window.localStorage.getItem(CALENDAR_CLIENT_ID_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function formatEventTime(event) {
+  const startValue = event.start?.dateTime || event.start?.date
+  if (!startValue) return 'time not set'
+  if (!event.start?.dateTime) return `${new Intl.DateTimeFormat('en-CA', { weekday: 'short', month: 'short', day: 'numeric' }).format(new Date(startValue)).toLowerCase()} · all day`
+  return new Intl.DateTimeFormat('en-CA', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(startValue)).toLowerCase()
+}
+
+async function fetchUpcomingEvents(accessToken, signal) {
+  const now = new Date()
+  const weekAhead = new Date(now.getTime() + 7 * 24 * 3600 * 1000)
+  const params = new URLSearchParams({
+    timeMin: now.toISOString(),
+    timeMax: weekAhead.toISOString(),
+    singleEvents: 'true',
+    orderBy: 'startTime',
+    maxResults: '12',
+  })
+  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+  })
+  if (response.status === 401) throw new Error('Google rejected the access token. Reconnect and try again.')
+  if (!response.ok) throw new Error(`Google Calendar returned ${response.status}.`)
+  const data = await response.json()
+  return Array.isArray(data.items) ? data.items : []
+}
+
+function CalendarPanel({ index }) {
+  const [clientId, setClientId] = useState(readCalendarClientId)
+  const [draftClientId, setDraftClientId] = useState(clientId)
+  const [editingClientId, setEditingClientId] = useState(!clientId)
+  const [state, setState] = useState({ status: 'idle', events: [], error: '' })
+  const tokenClientRef = useRef(null)
+  const accessTokenRef = useRef('')
+  const fetchControllerRef = useRef(null)
+
+  useEffect(() => () => fetchControllerRef.current?.abort(), [])
+
+  const loadEvents = useCallback(async (accessToken) => {
+    fetchControllerRef.current?.abort()
+    const controller = new AbortController()
+    fetchControllerRef.current = controller
+    setState((current) => ({ ...current, status: 'loading', error: '' }))
+    try {
+      const events = await fetchUpcomingEvents(accessToken, controller.signal)
+      if (!controller.signal.aborted) setState({ status: 'ready', events, error: '' })
+    } catch (error) {
+      if (!controller.signal.aborted && error.name !== 'AbortError') setState({ status: 'error', events: [], error: error.message })
+    }
+  }, [])
+
+  const connect = useCallback(async () => {
+    if (!clientId) return
+    setState({ status: 'connecting', events: [], error: '' })
+    try {
+      await loadGoogleIdentityScript()
+      if (!tokenClientRef.current || tokenClientRef.current.clientId !== clientId) {
+        tokenClientRef.current = {
+          clientId,
+          client: window.google.accounts.oauth2.initTokenClient({
+            client_id: clientId,
+            scope: GOOGLE_CALENDAR_SCOPE,
+            callback: (response) => {
+              if (response.error) {
+                setState({ status: 'error', events: [], error: `Google sign-in failed: ${response.error}` })
+                return
+              }
+              accessTokenRef.current = response.access_token
+              loadEvents(response.access_token)
+            },
+          }),
+        }
+      }
+      tokenClientRef.current.client.requestAccessToken({ prompt: accessTokenRef.current ? '' : 'consent' })
+    } catch (error) {
+      setState({ status: 'error', events: [], error: error.message })
+    }
+  }, [clientId, loadEvents])
+
+  function saveClientId(event) {
+    event.preventDefault()
+    const trimmed = draftClientId.trim()
+    if (!trimmed) return
+    try {
+      window.localStorage.setItem(CALENDAR_CLIENT_ID_KEY, trimmed)
+    } catch {
+      // Calendar still connects for this session even when storage is unavailable.
+    }
+    setClientId(trimmed)
+    setEditingClientId(false)
+  }
+
+  function disconnect() {
+    try {
+      window.localStorage.removeItem(CALENDAR_CLIENT_ID_KEY)
+    } catch {
+      // Nothing else to clean up when storage is unavailable.
+    }
+    accessTokenRef.current = ''
+    tokenClientRef.current = null
+    setClientId('')
+    setDraftClientId('')
+    setEditingClientId(true)
+    setState({ status: 'idle', events: [], error: '' })
+  }
+
+  const meta = state.status === 'ready' ? <span>{state.events.length} upcoming · 7 days</span> : state.status === 'loading' || state.status === 'connecting' ? <span>syncing...</span> : null
+
+  return (
+    <Panel path="~/calendar.ics" index={index} className="calendar-panel" meta={meta}>
+      {editingClientId ? (
+        <div className="assignment-empty">
+          <strong>Connect Google Calendar.</strong>
+          <small>Create an OAuth client ID in Google Cloud Console (type: Web application) with your dev server's URL (e.g. <code>http://localhost:5173</code>) as an authorized JavaScript origin, then paste the client ID below.</small>
+          <form className="calendar-fields" onSubmit={saveClientId}>
+            <label><span>OAuth client ID</span><input value={draftClientId} onChange={(event) => setDraftClientId(event.target.value)} placeholder="123...apps.googleusercontent.com" autoComplete="off" /></label>
+            <button type="submit" className="calendar-connect">save</button>
+          </form>
+          <small className="calendar-note">The client ID is stored in this browser's local storage only. <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noreferrer">create one in Google Cloud Console ↗</a></small>
+        </div>
+      ) : state.status === 'idle' ? (
+        <div className="assignment-empty">
+          <strong>Ready to connect.</strong>
+          <small>Sign in with Google to show your next 7 days of events.</small>
+          <button type="button" className="syllabus-connect" onClick={connect}>connect Google Calendar ↗</button>
+          <button type="button" className="assignment-action" onClick={() => setEditingClientId(true)}>edit client ID</button>
+        </div>
+      ) : state.status === 'connecting' || state.status === 'loading' ? (
+        <div className="assignment-empty"><strong>{state.status === 'connecting' ? 'Waiting on Google sign-in...' : 'Syncing your calendar...'}</strong></div>
+      ) : state.status === 'error' ? (
+        <div className="assignment-empty assignment-error">
+          <strong>Calendar sync failed.</strong>
+          <small>{state.error}</small>
+          <div className="calendar-toolbar"><span /><div><button type="button" className="github-action" onClick={connect}>retry</button><button type="button" className="github-action" onClick={disconnect}>change client ID</button></div></div>
+        </div>
+      ) : (
+        <>
+          <div className="calendar-toolbar"><span>next 7 days</span><div><button type="button" className="github-action" onClick={connect}>refresh</button><button type="button" className="github-action" onClick={disconnect}>disconnect</button></div></div>
+          {state.events.length ? (
+            <ol className="assignment-list"><span className="assignment-line" aria-hidden="true" />
+              {state.events.map((event) => (
+                <li key={event.id}>
+                  <span className="assignment-dot" aria-hidden="true" />
+                  <div>
+                    <div className="assignment-title"><strong>{event.summary || '(untitled event)'}</strong></div>
+                    <small>{formatEventTime(event)}{event.location ? ` · ${event.location}` : ''}</small>
+                  </div>
+                </li>
+              ))}
+            </ol>
+          ) : <p className="github-empty">Nothing on your calendar for the next 7 days.</p>}
+        </>
+      )}
+    </Panel>
+  )
+}
+
+const NOTES_STORAGE_KEY = 'start.notes'
+
+function readNotes() {
+  try {
+    return window.localStorage.getItem(NOTES_STORAGE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+function NotesPanel({ index }) {
+  const [notes, setNotes] = useState(readNotes)
+  const [savedAt, setSavedAt] = useState(null)
+  const saveTimerRef = useRef(null)
+
+  useEffect(() => () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current) }, [])
+
+  function updateNotes(value) {
+    setNotes(value)
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(NOTES_STORAGE_KEY, value)
+      } catch {
+        // Notes remain available for this session even when storage is unavailable.
+      }
+      setSavedAt(new Date())
+    }, 400)
+  }
+
+  function clearNotes() {
+    if (!window.confirm('Clear all notes? This cannot be undone.')) return
+    setNotes('')
+    try {
+      window.localStorage.removeItem(NOTES_STORAGE_KEY)
+    } catch {
+      // Nothing else to clean up when storage is unavailable.
+    }
+    setSavedAt(new Date())
+  }
+
+  return (
+    <Panel path="~/notes.scratch" index={index} className="notes-panel" meta={savedAt ? <span>saved {relativeUpdated(savedAt.toISOString())}</span> : null}>
+      <div className="notes-body">
+        <textarea
+          className="notes-textarea"
+          value={notes}
+          onChange={(event) => updateNotes(event.target.value)}
+          placeholder="jot down ideas, links, anything worth keeping..."
+          spellCheck="false"
+        />
+        <div className="notes-footer">
+          <span>autosaves locally · never leaves this browser</span>
+          <button type="button" className="notes-clear" onClick={clearNotes}>clear</button>
+        </div>
+      </div>
+    </Panel>
+  )
 }
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)

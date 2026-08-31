@@ -2,8 +2,9 @@
 
 A local-first personal startup dashboard: a live clock and greeting, weather,
 a daily focus/todo list, class assignments pulled from your syllabi, your
-open GitHub pull requests, and a local AI assistant — all in one terminal-style
-page you can set as what opens when you get on your PC.
+open GitHub pull requests, your upcoming Google Calendar events, a built-in
+scratchpad, and a local AI assistant — all in one terminal-style page you can
+set as what opens when you get on your PC.
 
 Adapted from the [relay](https://github.com/7shep/relay) reference project.
 
@@ -57,9 +58,36 @@ Weather comes from your browser's geolocation plus the free
 [Open-Meteo](https://open-meteo.com) API — no API key needed. Allow the
 location permission prompt the first time the page loads.
 
-## Notes
+## Google Calendar
 
-- Everything (focus tasks, assignments, GitHub config) is stored in your
-  browser's local storage, not on a server.
+The calendar panel shows your next 7 days of events on your primary calendar.
+It needs a Google OAuth client ID, since Calendar data requires you to sign
+in — this app never sees your Google password.
+
+1. Go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
+   and create an **OAuth client ID** of type **Web application**.
+2. Under **Authorized JavaScript origins**, add the URL this app runs on
+   (e.g. `http://localhost:5173` for `npm run dev`).
+3. Enable the **Google Calendar API** for that project if prompted.
+4. Copy the client ID and paste it into the calendar panel, then click
+   **connect Google Calendar** and approve the read-only calendar scope.
+
+The client ID is stored in local storage; the access token Google issues
+after you sign in is kept in memory only, so you'll reconnect each time you
+reload the page. Only read access is requested (`calendar.readonly`) — the
+dashboard can't create, edit, or delete events.
+
+## Notepad
+
+A free-form scratchpad panel (`~/notes.scratch`) for jotting ideas — it
+autosaves to your browser's local storage a moment after you stop typing, and
+the `clear` button wipes it (with a confirmation) if you want a clean slate.
+
+## Storage & code layout
+
+- Everything (focus tasks, assignments, GitHub config, notepad contents) is
+  stored in your browser's local storage, not on a server. The Google
+  Calendar access token is the one exception — it's kept in memory only and
+  is never persisted.
 - The dashboard grid is defined in `src/main.jsx`; styling lives in
   `src/styles.css`.
