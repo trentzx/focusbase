@@ -78,9 +78,14 @@ h1 { display: flex; align-items: baseline; margin-top: 7px; color: var(--term-te
 .focus-list, .assignment-list { margin: 0; padding: 0; list-style: none; }
 .focus-list { min-height: 316px; }
 .focus-list li + li { border-top: 1px solid var(--term-border); }
-.focus-task { display: flex; align-items: flex-start; gap: 13px; width: 100%; min-height: 50px; padding: 12px 10px; border: 0; color: var(--term-text); background: transparent; text-align: left; transition: background 150ms ease; }
+.focus-task-row { display: flex; align-items: stretch; }
+.focus-task { display: flex; align-items: flex-start; flex: 1; gap: 13px; min-width: 0; min-height: 50px; padding: 12px 10px; border: 0; color: var(--term-text); background: transparent; text-align: left; transition: background 150ms ease; }
 .focus-task:hover, .focus-task:focus-visible { background: var(--term-raised); outline: 0; }
 .focus-task.next-task { background: var(--term-accent-dim); }
+.focus-task-delete { flex: 0 0 auto; align-self: center; width: 18px; height: 18px; margin-right: 10px; padding: 0; border: 1px solid transparent; color: var(--term-muted); background: transparent; font: inherit; font-size: 13px; line-height: 16px; cursor: pointer; opacity: 0; transition: opacity 150ms ease, color 150ms ease, border-color 150ms ease; }
+.focus-task-row:hover .focus-task-delete, .focus-task-delete:focus-visible { opacity: 1; }
+.focus-task-delete:hover, .focus-task-delete:focus-visible { border-color: var(--term-danger); color: var(--term-danger); outline: 0; }
+.focus-add-button { margin-left: 8px; }
 .task-box { display: flex; align-items: center; justify-content: center; width: 11px; height: 11px; margin-top: 2px; border: 1px solid var(--term-border); color: var(--term-accent); font-size: 10px; line-height: 8px; }
 .completed-task .task-box { border-color: var(--term-accent-line); }
 .task-text { min-width: 0; }
@@ -278,6 +283,8 @@ td { color: var(--term-muted); font-size: 9px; white-space: nowrap; }
 .modal-primary { border-color: var(--term-accent-line); color: var(--term-accent); background: var(--term-accent-dim); }
 .modal-primary:hover { background: #16432e; }
 .reopen-button { border-color: var(--term-border); color: var(--term-muted); background: transparent; }
+.modal-danger { margin-right: auto; padding: 7px 10px; border: 1px solid var(--term-border); color: var(--term-danger); background: transparent; font-size: 10px; }
+.modal-danger:hover { border-color: var(--term-danger); background: rgb(239 102 93 / 0.12); }
 .task-edit-form { display: grid; gap: 14px; padding: 20px; }
 .task-edit-form label { display: grid; gap: 6px; }
 .task-edit-form label > span small { color: var(--term-muted); }
