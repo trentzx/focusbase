@@ -1087,6 +1087,7 @@ function GitHubRepositorySummary({ repository }) {
 }
 
 const CALENDAR_CLIENT_ID_KEY = 'start.calendar.clientId'
+const CALENDAR_ID_KEY = 'start.calendar.calendarId'
 const GOOGLE_CALENDAR_SCOPE = 'https://www.googleapis.com/auth/calendar.readonly'
 let gisScriptPromise = null
 
@@ -1114,6 +1115,14 @@ function readCalendarClientId() {
   }
 }
 
+function readCalendarId() {
+  try {
+    return window.localStorage.getItem(CALENDAR_ID_KEY) || 'primary'
+  } catch {
+    return 'primary'
+  }
+}
+
 function formatEventTime(event) {
   const startValue = event.start?.dateTime || event.start?.date
   if (!startValue) return 'time not set'
@@ -1121,7 +1130,7 @@ function formatEventTime(event) {
   return new Intl.DateTimeFormat('en-CA', { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(startValue)).toLowerCase()
 }
 
-async function fetchUpcomingEvents(accessToken, signal) {
+async function fetchUpcomingEvents(accessToken, calendarId, signal) {
   const now = new Date()
   const weekAhead = new Date(now.getTime() + 7 * 24 * 3600 * 1000)
   const params = new URLSearchParams({
@@ -1131,43 +1140,69 @@ async function fetchUpcomingEvents(accessToken, signal) {
     orderBy: 'startTime',
     maxResults: '12',
   })
-  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/primary/events?${params}`, {
+  const response = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId || 'primary')}/events?${params}`, {
     headers: { Authorization: `Bearer ${accessToken}` },
     signal,
   })
   if (response.status === 401) throw new Error('Google rejected the access token. Reconnect and try again.')
+  if (response.status === 404) throw new Error('That calendar could not be found. Pick a different one from the list.')
   if (!response.ok) throw new Error(`Google Calendar returned ${response.status}.`)
   const data = await response.json()
   return Array.isArray(data.items) ? data.items : []
+}
+
+async function fetchCalendarList(accessToken, signal) {
+  const params = new URLSearchParams({ minAccessRole: 'reader', showHidden: 'false' })
+  const response = await fetch(`https://www.googleapis.com/calendar/v3/users/me/calendarList?${params}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+  })
+  if (!response.ok) return []
+  const data = await response.json()
+  const items = Array.isArray(data.items) ? data.items : []
+  return items
+    .map((item) => ({ id: item.id, summary: item.summaryOverride || item.summary || item.id, primary: Boolean(item.primary) }))
+    .sort((a, b) => (b.primary - a.primary) || a.summary.localeCompare(b.summary))
 }
 
 function CalendarPanel({ index }) {
   const [clientId, setClientId] = useState(readCalendarClientId)
   const [draftClientId, setDraftClientId] = useState(clientId)
   const [editingClientId, setEditingClientId] = useState(!clientId)
-  const [state, setState] = useState({ status: 'idle', events: [], error: '' })
+  const [state, setState] = useState({ status: 'idle', events: [], calendars: [], error: '' })
+  const [calendarId, setCalendarId] = useState(readCalendarId)
   const tokenClientRef = useRef(null)
   const accessTokenRef = useRef('')
+  const calendarIdRef = useRef(calendarId)
   const fetchControllerRef = useRef(null)
 
   useEffect(() => () => fetchControllerRef.current?.abort(), [])
 
-  const loadEvents = useCallback(async (accessToken) => {
+  const loadEvents = useCallback(async (accessToken, targetCalendarId) => {
     fetchControllerRef.current?.abort()
     const controller = new AbortController()
     fetchControllerRef.current = controller
     setState((current) => ({ ...current, status: 'loading', error: '' }))
     try {
-      const events = await fetchUpcomingEvents(accessToken, controller.signal)
-      if (!controller.signal.aborted) setState({ status: 'ready', events, error: '' })
+      const events = await fetchUpcomingEvents(accessToken, targetCalendarId, controller.signal)
+      if (!controller.signal.aborted) setState((current) => ({ ...current, status: 'ready', events, error: '' }))
     } catch (error) {
-      if (!controller.signal.aborted && error.name !== 'AbortError') setState({ status: 'error', events: [], error: error.message })
+      if (!controller.signal.aborted && error.name !== 'AbortError') setState((current) => ({ ...current, status: 'error', events: [], error: error.message }))
+    }
+  }, [])
+
+  const loadCalendars = useCallback(async (accessToken) => {
+    try {
+      const calendars = await fetchCalendarList(accessToken)
+      setState((current) => ({ ...current, calendars }))
+    } catch {
+      // The calendar picker is a nice-to-have; events still load for the current selection.
     }
   }, [])
 
   const connect = useCallback(async () => {
     if (!clientId) return
-    setState({ status: 'connecting', events: [], error: '' })
+    setState((current) => ({ ...current, status: 'connecting', error: '' }))
     try {
       await loadGoogleIdentityScript()
       if (!tokenClientRef.current || tokenClientRef.current.clientId !== clientId) {
@@ -1178,20 +1213,33 @@ function CalendarPanel({ index }) {
             scope: GOOGLE_CALENDAR_SCOPE,
             callback: (response) => {
               if (response.error) {
-                setState({ status: 'error', events: [], error: `Google sign-in failed: ${response.error}` })
+                setState((current) => ({ ...current, status: 'error', error: `Google sign-in failed: ${response.error}` }))
                 return
               }
               accessTokenRef.current = response.access_token
-              loadEvents(response.access_token)
+              loadCalendars(response.access_token)
+              loadEvents(response.access_token, calendarIdRef.current)
             },
           }),
         }
       }
       tokenClientRef.current.client.requestAccessToken({ prompt: accessTokenRef.current ? '' : 'consent' })
     } catch (error) {
-      setState({ status: 'error', events: [], error: error.message })
+      setState((current) => ({ ...current, status: 'error', error: error.message }))
     }
-  }, [clientId, loadEvents])
+  }, [clientId, loadCalendars, loadEvents])
+
+  function selectCalendar(event) {
+    const id = event.target.value
+    calendarIdRef.current = id
+    setCalendarId(id)
+    try {
+      window.localStorage.setItem(CALENDAR_ID_KEY, id)
+    } catch {
+      // The selection still applies for this session even when storage is unavailable.
+    }
+    if (accessTokenRef.current) loadEvents(accessTokenRef.current, id)
+  }
 
   function saveClientId(event) {
     event.preventDefault()
@@ -1217,10 +1265,11 @@ function CalendarPanel({ index }) {
     setClientId('')
     setDraftClientId('')
     setEditingClientId(true)
-    setState({ status: 'idle', events: [], error: '' })
+    setState({ status: 'idle', events: [], calendars: [], error: '' })
   }
 
   const meta = state.status === 'ready' ? <span>{state.events.length} upcoming · 7 days</span> : state.status === 'loading' || state.status === 'connecting' ? <span>syncing...</span> : null
+  const showPicker = (state.status === 'ready' || state.status === 'loading') && state.calendars.length > 0
 
   return (
     <Panel path="~/calendar.ics" index={index} className="calendar-panel" meta={meta}>
@@ -1241,8 +1290,8 @@ function CalendarPanel({ index }) {
           <button type="button" className="syllabus-connect" onClick={connect}>connect Google Calendar ↗</button>
           <button type="button" className="assignment-action" onClick={() => setEditingClientId(true)}>edit client ID</button>
         </div>
-      ) : state.status === 'connecting' || state.status === 'loading' ? (
-        <div className="assignment-empty"><strong>{state.status === 'connecting' ? 'Waiting on Google sign-in...' : 'Syncing your calendar...'}</strong></div>
+      ) : state.status === 'connecting' ? (
+        <div className="assignment-empty"><strong>Waiting on Google sign-in...</strong></div>
       ) : state.status === 'error' ? (
         <div className="assignment-empty assignment-error">
           <strong>Calendar sync failed.</strong>
@@ -1251,8 +1300,17 @@ function CalendarPanel({ index }) {
         </div>
       ) : (
         <>
-          <div className="calendar-toolbar"><span>next 7 days</span><div><button type="button" className="github-action" onClick={connect}>refresh</button><button type="button" className="github-action" onClick={disconnect}>disconnect</button></div></div>
-          {state.events.length ? (
+          <div className="calendar-toolbar">
+            {showPicker ? (
+              <select className="calendar-picker" value={calendarId} onChange={selectCalendar} aria-label="Choose a calendar">
+                {state.calendars.map((calendar) => <option key={calendar.id} value={calendar.id}>{calendar.summary}{calendar.primary ? ' (primary)' : ''}</option>)}
+              </select>
+            ) : <span>next 7 days</span>}
+            <div><button type="button" className="github-action" onClick={connect}>refresh</button><button type="button" className="github-action" onClick={disconnect}>disconnect</button></div>
+          </div>
+          {state.status === 'loading' ? (
+            <div className="assignment-empty"><strong>Syncing your calendar...</strong></div>
+          ) : state.events.length ? (
             <ol className="assignment-list"><span className="assignment-line" aria-hidden="true" />
               {state.events.map((event) => (
                 <li key={event.id}>
@@ -1264,7 +1322,7 @@ function CalendarPanel({ index }) {
                 </li>
               ))}
             </ol>
-          ) : <p className="github-empty">Nothing on your calendar for the next 7 days.</p>}
+          ) : <p className="github-empty">Nothing on this calendar for the next 7 days.</p>}
         </>
       )}
     </Panel>

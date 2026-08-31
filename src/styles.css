@@ -340,6 +340,8 @@ td { color: var(--term-muted); font-size: 9px; white-space: nowrap; }
 .calendar-note a { color: var(--term-accent); }
 .calendar-toolbar { display: flex; align-items: center; justify-content: space-between; padding: 8px 10px; color: var(--term-muted); font-size: 9px; border-bottom: 1px solid var(--term-border-soft); }
 .calendar-toolbar div { display: flex; gap: 6px; }
+.calendar-picker { max-width: 60%; padding: 4px 6px; border: 1px solid var(--term-border); color: var(--term-text); background: var(--term-bg); font: inherit; font-size: 9px; }
+.calendar-picker:focus-visible { border-color: var(--term-accent-line); outline: 0; }
 
 .notes-body { display: grid; gap: 8px; padding: 10px; }
 .notes-textarea { width: 100%; min-height: 160px; padding: 10px; border: 1px solid var(--term-border); outline: 0; resize: vertical; color: var(--term-text); background: var(--term-bg); font: inherit; font-size: 11px; line-height: 1.6; }
