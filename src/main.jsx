@@ -15,6 +15,10 @@ const seedTasks = [
 const FOCUS_STATE_KEY = 'start.focus.state'
 const ASSIGNMENTS_STATE_KEY = 'start.assignments'
 
+function createBlankTask() {
+  return { id: `task-${Date.now()}-${Math.round(Math.random() * 1000)}`, label: '', project: 'focusbase', estimate: '30m', due: '', description: '', timeline: [], done: false }
+}
+
 function dayKey(date) {
   return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-')
 }
@@ -589,6 +593,24 @@ function App() {
     setSelectedTask((current) => current && current.id === id ? { ...current, ...updates } : current)
   }, [])
 
+  const deleteTask = useCallback((id) => {
+    setTasks((current) => current.filter((task) => task.id !== id))
+    setSelectedTask((current) => current && current.id === id ? null : current)
+  }, [])
+
+  const addTask = useCallback(() => {
+    const task = createBlankTask()
+    setTasks((current) => [...current, task])
+    setSelectedTask(task)
+  }, [])
+
+  const closeTaskModal = useCallback(() => {
+    setSelectedTask((current) => {
+      if (current && !current.label) setTasks((tasks) => tasks.filter((task) => task.id !== current.id))
+      return null
+    })
+  }, [])
+
   const tasksLeft = useMemo(() => tasks.filter((task) => !task.done).length, [tasks])
 
   return (
@@ -600,6 +622,8 @@ function App() {
           <FocusTasks
             tasks={tasks}
             onOpen={setSelectedTask}
+            onAdd={addTask}
+            onDelete={deleteTask}
             showCompleted={showCompleted}
             onToggleCompleted={() => setShowCompleted((current) => !current)}
             focusStatus={focusStatus}
@@ -625,7 +649,7 @@ function App() {
           <span className="accent-text">all systems nominal</span>
         </footer>
       </div>
-      {selectedTask && <TaskModal task={selectedTask} onClose={() => setSelectedTask(null)} onToggle={toggleTask} onSave={updateTask} />}
+      {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} onToggle={toggleTask} onSave={updateTask} onDelete={deleteTask} />}
       <ChatBar tasks={tasks} assignments={assignments} onCreateTasks={createTasksFromPrompt} />
     </div>
   )
@@ -656,7 +680,7 @@ function Panel({ path, meta, children, primary = false, index = 0, className = '
   )
 }
 
-function FocusTasks({ tasks, onOpen, showCompleted, onToggleCompleted, focusStatus, taskStatus, index }) {
+function FocusTasks({ tasks, onOpen, onAdd, onDelete, showCompleted, onToggleCompleted, focusStatus, taskStatus, index }) {
   const completed = tasks.filter((task) => task.done).length
   const visible = showCompleted ? tasks : tasks.filter((task) => !task.done)
   const progress = tasks.length === 0 ? 0 : Math.round((completed / tasks.length) * 100)
@@ -664,30 +688,34 @@ function FocusTasks({ tasks, onOpen, showCompleted, onToggleCompleted, focusStat
   const syncState = taskStatus === 'planning' || taskStatus === 'offline' ? taskStatus : focusStatus
 
   return (
-    <Panel path="~/focus/today.md" primary index={index} className="focus-panel" meta={<span className="focus-meta"><button type="button" className="panel-meta-button" onClick={onToggleCompleted}>{completed}/{tasks.length} done</button>{syncLabel && <span className={`focus-sync-status ${syncState}`}> · {syncLabel}</span>}</span>}>
+    <Panel path="~/focus/today.md" primary index={index} className="focus-panel" meta={<span className="focus-meta"><button type="button" className="panel-meta-button" onClick={onToggleCompleted}>{completed}/{tasks.length} done</button><button type="button" className="github-action focus-add-button" onClick={onAdd}>+ add task</button>{syncLabel && <span className={`focus-sync-status ${syncState}`}> · {syncLabel}</span>}</span>}>
       <div className="progress-row"><div className="progress-track"><span style={{ width: `${progress}%` }} /></div><span>{progress}%</span></div>
       <ul className="focus-list">
         {visible.map((task, position) => {
           const isNext = !task.done && visible.find((item) => !item.done)?.id === task.id
-          return <li key={task.id}><button className={`focus-task ${isNext ? 'next-task' : ''} ${task.done ? 'completed-task' : ''}`} onClick={() => onOpen(task)} aria-haspopup="dialog">
-            <span className="task-box" aria-hidden="true">{task.done ? '×' : ''}</span>
-            <span className="task-text"><strong>{task.label}</strong><small>{String(position + 1).padStart(2, '0')} · {task.project} · est {task.estimate}{isNext && <em> · up next</em>}</small></span><span className="task-open" aria-hidden="true">↗</span>
-          </button></li>
+          return <li key={task.id} className="focus-task-row">
+            <button className={`focus-task ${isNext ? 'next-task' : ''} ${task.done ? 'completed-task' : ''}`} onClick={() => onOpen(task)} aria-haspopup="dialog">
+              <span className="task-box" aria-hidden="true">{task.done ? '×' : ''}</span>
+              <span className="task-text"><strong>{task.label || 'untitled task'}</strong><small>{String(position + 1).padStart(2, '0')} · {task.project} · est {task.estimate}{isNext && <em> · up next</em>}</small></span><span className="task-open" aria-hidden="true">↗</span>
+            </button>
+            <button type="button" className="focus-task-delete" onClick={(event) => { event.stopPropagation(); onDelete(task.id) }} aria-label={`Delete ${task.label || 'task'}`} title="Delete task">×</button>
+          </li>
         })}
-        {visible.length === 0 && <li className="empty-task">everything checked off.<small>Ask Qwen in the assistant to add another focus task.</small></li>}
+        {visible.length === 0 && <li className="empty-task">everything checked off.<small>Ask Qwen in the assistant, or click + add task, to create another focus task.</small></li>}
       </ul>
     </Panel>
   )
 }
 
-function TaskModal({ task, onClose, onToggle, onSave }) {
-  const [editing, setEditing] = useState(false)
+function TaskModal({ task, onClose, onToggle, onSave, onDelete }) {
+  const isNewTask = !task.label
+  const [editing, setEditing] = useState(isNewTask)
   const [draft, setDraft] = useState({ ...task, timelineText: task.timeline?.join('\n') || '' })
   const closeRef = useRef(null)
 
   useEffect(() => {
     setDraft({ ...task, timelineText: task.timeline?.join('\n') || '' })
-    setEditing(false)
+    setEditing(!task.label)
   }, [task])
 
   useEffect(() => {
@@ -718,28 +746,41 @@ function TaskModal({ task, onClose, onToggle, onSave }) {
 
   function save(event) {
     event.preventDefault()
+    const label = draft.label.trim()
+    if (!label) return
     const timeline = draft.timelineText.split('\n').map((line) => line.trim()).filter(Boolean)
-    onSave(task.id, { label: draft.label.trim() || task.label, description: draft.description.trim(), estimate: draft.estimate.trim() || '30m', due: draft.due, timeline })
+    onSave(task.id, { label, description: draft.description.trim(), estimate: draft.estimate.trim() || '30m', due: draft.due, timeline })
     setEditing(false)
+  }
+
+  function cancelEdit() {
+    if (isNewTask) onClose()
+    else setEditing(false)
+  }
+
+  function deleteTask() {
+    if (!window.confirm(`Delete "${task.label || 'this task'}"? This cannot be undone.`)) return
+    onDelete(task.id)
+    onClose()
   }
 
   const timelineText = editing ? draft.timelineText : task.timeline.join('\n')
   return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="task-modal" role="dialog" aria-modal="true" aria-labelledby="task-modal-title" aria-describedby="task-modal-description">
-      <header className="task-modal-header"><span className="command-line">$ cat ~/focus/{task.id}.md</span><button ref={closeRef} className="modal-close" onClick={onClose} aria-label="Close task details">×</button></header>
+      <header className="task-modal-header"><span className="command-line">$ cat ~/focus/{isNewTask ? 'new-task' : `${task.id}.md`}</span><button ref={closeRef} className="modal-close" onClick={onClose} aria-label="Close task details">×</button></header>
       {editing ? <form className="task-edit-form" onSubmit={save}>
-        <label><span>task</span><input value={draft.label} onChange={(event) => updateDraft('label', event.target.value)} autoFocus /></label>
+        <label><span>task</span><input value={draft.label} onChange={(event) => updateDraft('label', event.target.value)} placeholder="what needs doing?" autoFocus required /></label>
         <label><span>description</span><textarea value={draft.description} onChange={(event) => updateDraft('description', event.target.value)} rows="3" /></label>
         <div className="task-edit-grid"><label><span>estimate</span><input value={draft.estimate} onChange={(event) => updateDraft('estimate', event.target.value)} /></label><label><span>due date</span><input type="date" value={draft.due} onChange={(event) => updateDraft('due', event.target.value)} /></label></div>
         <label><span>timeline <small>one step per line</small></span><textarea value={timelineText} onChange={(event) => updateDraft('timelineText', event.target.value)} rows="5" /></label>
-        <div className="task-modal-actions"><button type="button" className="modal-secondary" onClick={() => setEditing(false)}>cancel</button><button type="submit" className="modal-primary">save changes</button></div>
+        <div className="task-modal-actions">{!isNewTask && <button type="button" className="modal-danger" onClick={deleteTask}>delete task</button>}<button type="button" className="modal-secondary" onClick={cancelEdit}>cancel</button><button type="submit" className="modal-primary">{isNewTask ? 'add task' : 'save changes'}</button></div>
       </form> : <div className="task-detail">
         <div className="task-detail-top"><span className="eyebrow">{task.project} · {task.done ? 'completed' : 'focus task'}</span><span className="task-detail-id">{task.id}</span></div>
         <h2 id="task-modal-title">{task.label}</h2>
         <p id="task-modal-description" className="task-description">{task.description || 'No description yet. Add context to make this task easier to pick back up.'}</p>
         <div className="task-facts"><div><span>estimate</span><strong>{task.estimate}</strong></div><div><span>due</span><strong>{formatTaskDue(task.due)}</strong></div></div>
         <div className="timeline-block"><span className="eyebrow">Suggested timeline</span><ol>{task.timeline?.length ? task.timeline.map((step, index) => <li key={`${step}-${index}`}><span>{String(index + 1).padStart(2, '0')}</span>{step}</li>) : <li className="timeline-empty">No timeline yet. Add one while editing.</li>}</ol></div>
-        <div className="task-modal-actions"><button className="modal-secondary" onClick={() => setEditing(true)}>edit task</button><button className={`modal-primary ${task.done ? 'reopen-button' : ''}`} onClick={() => onToggle(task.id)}>{task.done ? 'reopen task' : 'mark complete'}</button></div>
+        <div className="task-modal-actions"><button className="modal-danger" onClick={deleteTask}>delete task</button><button className="modal-secondary" onClick={() => setEditing(true)}>edit task</button><button className={`modal-primary ${task.done ? 'reopen-button' : ''}`} onClick={() => onToggle(task.id)}>{task.done ? 'reopen task' : 'mark complete'}</button></div>
       </div>}
     </section>
   </div>
