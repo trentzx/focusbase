@@ -76,7 +76,7 @@ function normalizeSyllabusAssignments(items, now, sourceNames) {
     const course = String(item?.course || '').trim()
     const dueAt = String(item?.dueAt || item?.due || '').trim().slice(0, 10)
     const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(dueAt) ? new Date(`${dueAt}T23:59:00`) : null
-    const dueInHours = dueDate && !Number.isNaN(dueDate.getTime()) ? Math.max(0, Math.round((dueDate.getTime() - now.getTime()) / 3600000)) : null
+    const dueInHours = dueDate && !Number.isNaN(dueDate.getTime()) ? Math.round((dueDate.getTime() - now.getTime()) / 3600000) : null
     return {
       id: `syllabus-${index}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}`,
       course,
@@ -236,6 +236,7 @@ function formatDateLine(date) {
 }
 
 function dueLabel(hours) {
+  if (hours <= 0) return 'overdue'
   if (hours < 48) return `${hours}h`
   return `${Math.round(hours / 24)}d`
 }
@@ -1004,13 +1005,15 @@ function WeatherPanel({ index, weather, weatherStatus }) {
 }
 
 function AssignmentsPanel({ now, assignments, index, syllabusState, onImport, onClear }) {
-  const soon = assignments.filter((item) => Number.isFinite(item.dueInHours) && item.dueInHours <= 24).length
-  const meta = assignments.length ? <span>{assignments.length} queued <b className="danger-text">· {soon} due &lt;24h</b></span> : syllabusState.status === 'importing' ? <span>qwen extracting...</span> : null
+  const overdue = assignments.filter((item) => Number.isFinite(item.dueInHours) && item.dueInHours <= 0).length
+  const soon = assignments.filter((item) => Number.isFinite(item.dueInHours) && item.dueInHours > 0 && item.dueInHours <= 24).length
+  const meta = assignments.length ? <span>{assignments.length} queued <b className="danger-text">· {overdue ? `${overdue} overdue` : `${soon} due <24h`}</b></span> : syllabusState.status === 'importing' ? <span>qwen extracting...</span> : null
   return <Panel path="~/edu/assignments" index={index} className="assignments-panel" meta={meta}>
     {assignments.length ? <><div className="assignment-toolbar"><span>source: syllabi · qwen-2.5-7b</span><SyllabusImportButton label="add more syllabi" onImport={onImport} /><button type="button" className="assignment-action" onClick={onClear}>clear</button></div><ol className="assignment-list"><span className="assignment-line" aria-hidden="true" />{assignments.map((item) => {
       const dueHours = Number.isFinite(item.dueInHours) ? item.dueInHours : null
       const dueText = item.dueAt || (dueHours === null ? 'date not set' : dueClock(dueHours, now))
-      return <li key={item.id}><span className={`assignment-dot ${dueHours !== null && dueHours <= 12 ? 'danger-dot' : dueHours !== null && dueHours <= 48 ? 'warn-dot' : ''}`} aria-hidden="true" /><div><div className="assignment-title"><strong>{item.title}</strong><span className={dueHours !== null && dueHours <= 12 ? 'danger-text' : dueHours !== null && dueHours <= 48 ? 'warn-text' : ''}>{dueHours === null ? '—' : dueLabel(dueHours)}</span></div><small>{[item.course, item.kind, item.weight && `${item.weight} of grade`, `due ${dueText}`].filter(Boolean).join(' · ')}</small></div></li>
+      const overdueRow = dueHours !== null && dueHours <= 0
+      return <li key={item.id}><span className={`assignment-dot ${dueHours !== null && dueHours <= 12 ? 'danger-dot' : dueHours !== null && dueHours <= 48 ? 'warn-dot' : ''}`} aria-hidden="true" /><div><div className="assignment-title"><strong>{item.title}</strong><span className={dueHours !== null && dueHours <= 12 ? 'danger-text' : dueHours !== null && dueHours <= 48 ? 'warn-text' : ''}>{dueHours === null ? '—' : dueLabel(dueHours)}</span></div><small>{[item.course, item.kind, item.weight && `${item.weight} of grade`, `${overdueRow ? 'was due' : 'due'} ${dueText}`].filter(Boolean).join(' · ')}</small></div></li>
     })}</ol></> : <SyllabusSetup state={syllabusState} onImport={onImport} />}
   </Panel>
 }
