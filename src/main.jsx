@@ -418,6 +418,7 @@ function App() {
   const [selectedTask, setSelectedTask] = useState(null)
   const [weather, setWeather] = useState(fallbackWeather)
   const [weatherStatus, setWeatherStatus] = useState('locating')
+  const [savedAt, setSavedAt] = useState(() => new Date())
   const tasksRef = useRef(tasks)
   const assignmentsRef = useRef(assignments)
   const lastFocusDayRef = useRef(focusState.day)
@@ -454,6 +455,7 @@ function App() {
     tasksRef.current = tasks
     try {
       window.localStorage.setItem(FOCUS_STATE_KEY, JSON.stringify({ day: focusDay, tasks }))
+      setSavedAt(new Date())
     } catch {
       // The focus list still works when browser storage is unavailable.
     }
@@ -463,6 +465,7 @@ function App() {
     assignmentsRef.current = assignments
     try {
       window.localStorage.setItem(ASSIGNMENTS_STATE_KEY, JSON.stringify(assignments))
+      setSavedAt(new Date())
     } catch {
       // Assignment data still remains available for this session when storage is unavailable.
     }
@@ -655,13 +658,7 @@ function App() {
           <NotesPanel index={5} />
         </main>
 
-        <footer className="system-footer">
-          <span>synced 2m ago</span>
-          <span aria-hidden="true">·</span>
-          <span>3 sources connected</span>
-          <span aria-hidden="true">·</span>
-          <span className="accent-text">all systems nominal</span>
-        </footer>
+        <SystemFooter savedAt={savedAt} assignments={assignments} weatherStatus={weatherStatus} focusStatus={focusStatus} />
       </div>
       {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} onToggle={toggleTask} onSave={updateTask} onDelete={deleteTask} />}
       <ChatBar tasks={tasks} assignments={assignments} onCreateTasks={createTasksFromPrompt} />
@@ -682,6 +679,24 @@ function DashboardHeader({ name, now, tasksLeft, weather, weatherStatus }) {
         <div><strong>{weather.temp}°C <span>/ {weather.condition.toLowerCase()}</span></strong><small>{weatherStatus === 'live' ? weather.location : `location ${weatherStatus}`}</small></div>
       </div>
     </header>
+  )
+}
+
+function SystemFooter({ savedAt, assignments, weatherStatus, focusStatus }) {
+  const health = focusStatus === 'offline'
+    ? { text: 'qwen unavailable', className: 'warn-text' }
+    : weatherStatus === 'live'
+      ? { text: 'all systems nominal', className: 'accent-text' }
+      : { text: `weather ${weatherStatus}`, className: 'muted-text' }
+
+  return (
+    <footer className="system-footer">
+      <span>saved {savedAt.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+      <span aria-hidden="true">·</span>
+      <span>{assignments.length} assignment{assignments.length === 1 ? '' : 's'} queued</span>
+      <span aria-hidden="true">·</span>
+      <span className={health.className}>{health.text}</span>
+    </footer>
   )
 }
 
