@@ -201,6 +201,7 @@ ${JSON.stringify(assignments)}`
 
 const fallbackWeather = {
   location: 'Current location',
+  code: null,
   temp: 20,
   feelsLike: 19,
   condition: 'Locating weather',
@@ -341,6 +342,17 @@ function weatherDescription(code) {
   return 'Current conditions'
 }
 
+function weatherGlyph(code) {
+  if (code === 0) return '☼'
+  if ([1, 2].includes(code)) return '◑'
+  if (code === 3) return '☁'
+  if ([45, 48].includes(code)) return '≡'
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return '☂'
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return '❄'
+  if ([95, 96, 99].includes(code)) return '⚡'
+  return '☼'
+}
+
 async function loadWeather(latitude, longitude, signal) {
   const params = new URLSearchParams({
     latitude: String(latitude),
@@ -380,6 +392,7 @@ async function loadWeather(latitude, longitude, signal) {
 
   return {
     location,
+    code: data.current.weather_code,
     temp: Math.round(data.current.temperature_2m),
     feelsLike: Math.round(data.current.apparent_temperature),
     condition: weatherDescription(data.current.weather_code),
@@ -664,7 +677,7 @@ function DashboardHeader({ name, now, tasksLeft, weather, weatherStatus }) {
         <p className="header-meta">{formatDateLine(now)} <span aria-hidden="true">·</span> <span className="bright-text">{formatClock(now)}</span> <span aria-hidden="true">·</span> {tasksLeft} focus task{tasksLeft === 1 ? '' : 's'} remaining</p>
       </div>
       <div className="weather-summary">
-        <span className="weather-glyph" aria-hidden="true">☼</span>
+        <span className="weather-glyph" role="img" aria-label={weather.condition}>{weatherGlyph(weather.code)}</span>
         <div><strong>{weather.temp}°C <span>/ {weather.condition.toLowerCase()}</span></strong><small>{weatherStatus === 'live' ? weather.location : `location ${weatherStatus}`}</small></div>
       </div>
     </header>
