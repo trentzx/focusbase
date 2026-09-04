@@ -246,15 +246,17 @@ function dueClock(hours, now) {
   return due.toLocaleString('en-US', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).toLowerCase()
 }
 
-function relativeAgo(hours) {
-  if (hours < 1) return 'just now'
+function relativeAgo(minutes) {
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.round(hours / 24)}d ago`
 }
 
 function relativeUpdated(timestamp) {
-  const hours = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 3600000))
-  return relativeAgo(hours)
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 60000))
+  return relativeAgo(minutes)
 }
 
 function formatTaskDue(value) {
