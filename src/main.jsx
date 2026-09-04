@@ -1362,6 +1362,16 @@ function CalendarPanel({ index }) {
 
 const NOTES_STORAGE_KEY = 'start.notes'
 
+function writeNotes(value) {
+  try {
+    window.localStorage.setItem(NOTES_STORAGE_KEY, value)
+    return true
+  } catch {
+    // Notes remain available for this session even when storage is unavailable.
+    return false
+  }
+}
+
 function readNotes() {
   try {
     return window.localStorage.getItem(NOTES_STORAGE_KEY) || ''
@@ -1374,24 +1384,42 @@ function NotesPanel({ index }) {
   const [notes, setNotes] = useState(readNotes)
   const [savedAt, setSavedAt] = useState(null)
   const saveTimerRef = useRef(null)
+  const pendingRef = useRef(null)
 
-  useEffect(() => () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current) }, [])
+  const flushNotes = useCallback(() => {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+    if (pendingRef.current === null) return
+    writeNotes(pendingRef.current)
+    pendingRef.current = null
+  }, [])
+
+  useEffect(() => {
+    // A closing tab never unmounts the panel, so flush the debounced write there too.
+    window.addEventListener('pagehide', flushNotes)
+    return () => {
+      window.removeEventListener('pagehide', flushNotes)
+      flushNotes()
+    }
+  }, [flushNotes])
 
   function updateNotes(value) {
     setNotes(value)
+    pendingRef.current = value
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(() => {
-      try {
-        window.localStorage.setItem(NOTES_STORAGE_KEY, value)
-      } catch {
-        // Notes remain available for this session even when storage is unavailable.
-      }
+      saveTimerRef.current = null
+      pendingRef.current = null
+      writeNotes(value)
       setSavedAt(new Date())
     }, 400)
   }
 
   function clearNotes() {
     if (!window.confirm('Clear all notes? This cannot be undone.')) return
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+    pendingRef.current = null
     setNotes('')
     try {
       window.localStorage.removeItem(NOTES_STORAGE_KEY)
