@@ -76,7 +76,7 @@ function normalizeSyllabusAssignments(items, now, sourceNames) {
     const course = String(item?.course || '').trim()
     const dueAt = String(item?.dueAt || item?.due || '').trim().slice(0, 10)
     const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(dueAt) ? new Date(`${dueAt}T23:59:00`) : null
-    const dueInHours = dueDate && !Number.isNaN(dueDate.getTime()) ? Math.max(0, Math.round((dueDate.getTime() - now.getTime()) / 3600000)) : null
+    const dueInHours = dueDate && !Number.isNaN(dueDate.getTime()) ? Math.round((dueDate.getTime() - now.getTime()) / 3600000) : null
     return {
       id: `syllabus-${index}-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 48)}`,
       course,
@@ -201,6 +201,7 @@ ${JSON.stringify(assignments)}`
 
 const fallbackWeather = {
   location: 'Current location',
+  code: null,
   temp: 20,
   feelsLike: 19,
   condition: 'Locating weather',
@@ -209,12 +210,12 @@ const fallbackWeather = {
   windKmh: 11,
   humidity: 48,
   hourly: [
-    { hour: '15', temp: 70 },
-    { hour: '16', temp: 71 },
-    { hour: '17', temp: 69 },
-    { hour: '18', temp: 66 },
-    { hour: '19', temp: 62 },
-    { hour: '20', temp: 59 },
+    { hour: '15', temp: 21 },
+    { hour: '16', temp: 22 },
+    { hour: '17', temp: 21 },
+    { hour: '18', temp: 19 },
+    { hour: '19', temp: 17 },
+    { hour: '20', temp: 15 },
   ],
 }
 
@@ -235,6 +236,7 @@ function formatDateLine(date) {
 }
 
 function dueLabel(hours) {
+  if (hours <= 0) return 'overdue'
   if (hours < 48) return `${hours}h`
   return `${Math.round(hours / 24)}d`
 }
@@ -244,15 +246,17 @@ function dueClock(hours, now) {
   return due.toLocaleString('en-US', { weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false }).toLowerCase()
 }
 
-function relativeAgo(hours) {
-  if (hours < 1) return 'just now'
+function relativeAgo(minutes) {
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes}m ago`
+  const hours = Math.round(minutes / 60)
   if (hours < 24) return `${hours}h ago`
   return `${Math.round(hours / 24)}d ago`
 }
 
 function relativeUpdated(timestamp) {
-  const hours = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 3600000))
-  return relativeAgo(hours)
+  const minutes = Math.max(0, Math.round((Date.now() - new Date(timestamp).getTime()) / 60000))
+  return relativeAgo(minutes)
 }
 
 function formatTaskDue(value) {
@@ -341,6 +345,17 @@ function weatherDescription(code) {
   return 'Current conditions'
 }
 
+function weatherGlyph(code) {
+  if (code === 0) return '☼'
+  if ([1, 2].includes(code)) return '◑'
+  if (code === 3) return '☁'
+  if ([45, 48].includes(code)) return '≡'
+  if ([51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82].includes(code)) return '☂'
+  if ([71, 73, 75, 77, 85, 86].includes(code)) return '❄'
+  if ([95, 96, 99].includes(code)) return '⚡'
+  return '☼'
+}
+
 async function loadWeather(latitude, longitude, signal) {
   const params = new URLSearchParams({
     latitude: String(latitude),
@@ -380,6 +395,7 @@ async function loadWeather(latitude, longitude, signal) {
 
   return {
     location,
+    code: data.current.weather_code,
     temp: Math.round(data.current.temperature_2m),
     feelsLike: Math.round(data.current.apparent_temperature),
     condition: weatherDescription(data.current.weather_code),
@@ -404,6 +420,7 @@ function App() {
   const [selectedTask, setSelectedTask] = useState(null)
   const [weather, setWeather] = useState(fallbackWeather)
   const [weatherStatus, setWeatherStatus] = useState('locating')
+  const [savedAt, setSavedAt] = useState(() => new Date())
   const tasksRef = useRef(tasks)
   const assignmentsRef = useRef(assignments)
   const lastFocusDayRef = useRef(focusState.day)
@@ -440,6 +457,7 @@ function App() {
     tasksRef.current = tasks
     try {
       window.localStorage.setItem(FOCUS_STATE_KEY, JSON.stringify({ day: focusDay, tasks }))
+      setSavedAt(new Date())
     } catch {
       // The focus list still works when browser storage is unavailable.
     }
@@ -449,6 +467,7 @@ function App() {
     assignmentsRef.current = assignments
     try {
       window.localStorage.setItem(ASSIGNMENTS_STATE_KEY, JSON.stringify(assignments))
+      setSavedAt(new Date())
     } catch {
       // Assignment data still remains available for this session when storage is unavailable.
     }
@@ -641,13 +660,7 @@ function App() {
           <NotesPanel index={5} />
         </main>
 
-        <footer className="system-footer">
-          <span>synced 2m ago</span>
-          <span aria-hidden="true">·</span>
-          <span>3 sources connected</span>
-          <span aria-hidden="true">·</span>
-          <span className="accent-text">all systems nominal</span>
-        </footer>
+        <SystemFooter savedAt={savedAt} assignments={assignments} weatherStatus={weatherStatus} focusStatus={focusStatus} />
       </div>
       {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} onToggle={toggleTask} onSave={updateTask} onDelete={deleteTask} />}
       <ChatBar tasks={tasks} assignments={assignments} onCreateTasks={createTasksFromPrompt} />
@@ -664,10 +677,28 @@ function DashboardHeader({ name, now, tasksLeft, weather, weatherStatus }) {
         <p className="header-meta">{formatDateLine(now)} <span aria-hidden="true">·</span> <span className="bright-text">{formatClock(now)}</span> <span aria-hidden="true">·</span> {tasksLeft} focus task{tasksLeft === 1 ? '' : 's'} remaining</p>
       </div>
       <div className="weather-summary">
-        <span className="weather-glyph" aria-hidden="true">☼</span>
+        <span className="weather-glyph" role="img" aria-label={weather.condition}>{weatherGlyph(weather.code)}</span>
         <div><strong>{weather.temp}°C <span>/ {weather.condition.toLowerCase()}</span></strong><small>{weatherStatus === 'live' ? weather.location : `location ${weatherStatus}`}</small></div>
       </div>
     </header>
+  )
+}
+
+function SystemFooter({ savedAt, assignments, weatherStatus, focusStatus }) {
+  const health = focusStatus === 'offline'
+    ? { text: 'qwen unavailable', className: 'warn-text' }
+    : weatherStatus === 'live'
+      ? { text: 'all systems nominal', className: 'accent-text' }
+      : { text: `weather ${weatherStatus}`, className: 'muted-text' }
+
+  return (
+    <footer className="system-footer">
+      <span>saved {savedAt.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+      <span aria-hidden="true">·</span>
+      <span>{assignments.length} assignment{assignments.length === 1 ? '' : 's'} queued</span>
+      <span aria-hidden="true">·</span>
+      <span className={health.className}>{health.text}</span>
+    </footer>
   )
 }
 
@@ -991,13 +1022,15 @@ function WeatherPanel({ index, weather, weatherStatus }) {
 }
 
 function AssignmentsPanel({ now, assignments, index, syllabusState, onImport, onClear }) {
-  const soon = assignments.filter((item) => Number.isFinite(item.dueInHours) && item.dueInHours <= 24).length
-  const meta = assignments.length ? <span>{assignments.length} queued <b className="danger-text">· {soon} due &lt;24h</b></span> : syllabusState.status === 'importing' ? <span>qwen extracting...</span> : null
+  const overdue = assignments.filter((item) => Number.isFinite(item.dueInHours) && item.dueInHours <= 0).length
+  const soon = assignments.filter((item) => Number.isFinite(item.dueInHours) && item.dueInHours > 0 && item.dueInHours <= 24).length
+  const meta = assignments.length ? <span>{assignments.length} queued <b className="danger-text">· {overdue ? `${overdue} overdue` : `${soon} due <24h`}</b></span> : syllabusState.status === 'importing' ? <span>qwen extracting...</span> : null
   return <Panel path="~/edu/assignments" index={index} className="assignments-panel" meta={meta}>
     {assignments.length ? <><div className="assignment-toolbar"><span>source: syllabi · qwen-2.5-7b</span><SyllabusImportButton label="add more syllabi" onImport={onImport} /><button type="button" className="assignment-action" onClick={onClear}>clear</button></div><ol className="assignment-list"><span className="assignment-line" aria-hidden="true" />{assignments.map((item) => {
       const dueHours = Number.isFinite(item.dueInHours) ? item.dueInHours : null
       const dueText = item.dueAt || (dueHours === null ? 'date not set' : dueClock(dueHours, now))
-      return <li key={item.id}><span className={`assignment-dot ${dueHours !== null && dueHours <= 12 ? 'danger-dot' : dueHours !== null && dueHours <= 48 ? 'warn-dot' : ''}`} aria-hidden="true" /><div><div className="assignment-title"><strong>{item.title}</strong><span className={dueHours !== null && dueHours <= 12 ? 'danger-text' : dueHours !== null && dueHours <= 48 ? 'warn-text' : ''}>{dueHours === null ? '—' : dueLabel(dueHours)}</span></div><small>{[item.course, item.kind, item.weight && `${item.weight} of grade`, `due ${dueText}`].filter(Boolean).join(' · ')}</small></div></li>
+      const overdueRow = dueHours !== null && dueHours <= 0
+      return <li key={item.id}><span className={`assignment-dot ${dueHours !== null && dueHours <= 12 ? 'danger-dot' : dueHours !== null && dueHours <= 48 ? 'warn-dot' : ''}`} aria-hidden="true" /><div><div className="assignment-title"><strong>{item.title}</strong><span className={dueHours !== null && dueHours <= 12 ? 'danger-text' : dueHours !== null && dueHours <= 48 ? 'warn-text' : ''}>{dueHours === null ? '—' : dueLabel(dueHours)}</span></div><small>{[item.course, item.kind, item.weight && `${item.weight} of grade`, `${overdueRow ? 'was due' : 'due'} ${dueText}`].filter(Boolean).join(' · ')}</small></div></li>
     })}</ol></> : <SyllabusSetup state={syllabusState} onImport={onImport} />}
   </Panel>
 }
@@ -1331,6 +1364,16 @@ function CalendarPanel({ index }) {
 
 const NOTES_STORAGE_KEY = 'start.notes'
 
+function writeNotes(value) {
+  try {
+    window.localStorage.setItem(NOTES_STORAGE_KEY, value)
+    return true
+  } catch {
+    // Notes remain available for this session even when storage is unavailable.
+    return false
+  }
+}
+
 function readNotes() {
   try {
     return window.localStorage.getItem(NOTES_STORAGE_KEY) || ''
@@ -1343,24 +1386,42 @@ function NotesPanel({ index }) {
   const [notes, setNotes] = useState(readNotes)
   const [savedAt, setSavedAt] = useState(null)
   const saveTimerRef = useRef(null)
+  const pendingRef = useRef(null)
 
-  useEffect(() => () => { if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current) }, [])
+  const flushNotes = useCallback(() => {
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+    if (pendingRef.current === null) return
+    writeNotes(pendingRef.current)
+    pendingRef.current = null
+  }, [])
+
+  useEffect(() => {
+    // A closing tab never unmounts the panel, so flush the debounced write there too.
+    window.addEventListener('pagehide', flushNotes)
+    return () => {
+      window.removeEventListener('pagehide', flushNotes)
+      flushNotes()
+    }
+  }, [flushNotes])
 
   function updateNotes(value) {
     setNotes(value)
+    pendingRef.current = value
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
     saveTimerRef.current = window.setTimeout(() => {
-      try {
-        window.localStorage.setItem(NOTES_STORAGE_KEY, value)
-      } catch {
-        // Notes remain available for this session even when storage is unavailable.
-      }
+      saveTimerRef.current = null
+      pendingRef.current = null
+      writeNotes(value)
       setSavedAt(new Date())
     }, 400)
   }
 
   function clearNotes() {
     if (!window.confirm('Clear all notes? This cannot be undone.')) return
+    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current)
+    saveTimerRef.current = null
+    pendingRef.current = null
     setNotes('')
     try {
       window.localStorage.removeItem(NOTES_STORAGE_KEY)
