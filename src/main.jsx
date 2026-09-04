@@ -210,12 +210,12 @@ const fallbackWeather = {
   windKmh: 11,
   humidity: 48,
   hourly: [
-    { hour: '15', temp: 70 },
-    { hour: '16', temp: 71 },
-    { hour: '17', temp: 69 },
-    { hour: '18', temp: 66 },
-    { hour: '19', temp: 62 },
-    { hour: '20', temp: 59 },
+    { hour: '15', temp: 21 },
+    { hour: '16', temp: 22 },
+    { hour: '17', temp: 21 },
+    { hour: '18', temp: 19 },
+    { hour: '19', temp: 17 },
+    { hour: '20', temp: 15 },
   ],
 }
 
