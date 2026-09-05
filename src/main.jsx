@@ -1,4 +1,4 @@
-import React, { StrictMode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { StrictMode, memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import * as pdfjsLib from 'pdfjs-dist'
 import pdfWorker from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
@@ -891,7 +891,7 @@ async function streamQwenChat(messages, onChunk, signal) {
   }
 }
 
-function ChatBar({ tasks, assignments, weather, weatherStatus, onCreateTasks }) {
+const ChatBar = memo(function ChatBar({ tasks, assignments, weather, weatherStatus, onCreateTasks }) {
   const [isOpen, setIsOpen] = useState(true)
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState([])
@@ -1012,7 +1012,7 @@ function ChatBar({ tasks, assignments, weather, weatherStatus, onCreateTasks }) 
       <p className="assistant-hint">enter to send · shift+enter for newline · reads your focus list, courses, repos &amp; forecast</p>
     </> : <button type="button" className="assistant-collapsed" onClick={() => setIsOpen(true)} aria-label="Open assistant" aria-expanded="false"><span aria-hidden="true">⇥</span><span>assistant</span>{isStreaming ? <i aria-hidden="true" /> : null}</button>}
   </aside>
-}
+})
 
 function WeatherPanel({ index, weather, weatherStatus }) {
   const temps = weather.hourly.map((entry) => entry.temp)
@@ -1054,7 +1054,7 @@ function SyllabusImportButton({ label = 'add syllabus', onImport }) {
   return <><input ref={inputRef} className="visually-hidden" type="file" accept=".txt,.md,.csv,.json,.html,.htm,.pdf,text/plain,text/markdown,text/csv,application/json,text/html,application/pdf" multiple onChange={chooseFiles} /><button type="button" className="syllabus-connect" onClick={() => inputRef.current?.click()}>{label} <span aria-hidden="true">↗</span></button></>
 }
 
-function PullRequestsPanel({ index }) {
+const PullRequestsPanel = memo(function PullRequestsPanel({ index }) {
   const [config, setConfig] = useState(readGitHubConfig)
   const [draftUsername, setDraftUsername] = useState(config.username)
   const [draftToken, setDraftToken] = useState(config.token)
@@ -1092,7 +1092,7 @@ function PullRequestsPanel({ index }) {
   return <Panel path="~/git/pulls --author=@me" index={index} className="pulls-panel" meta={meta}>
     {!config.username ? <GitHubSetup username={draftUsername} token={draftToken} onUsernameChange={setDraftUsername} onTokenChange={setDraftToken} onSubmit={connect} /> : state.status === 'loading' ? <div className="github-message"><span className="accent-text">◌</span> syncing open pull requests for {config.username}...</div> : state.status === 'error' ? <div className="github-message error-message"><strong>github sync failed</strong><span>{state.error}</span><div><button className="github-action" onClick={() => setConfig({ ...config })}>retry</button><button className="github-action" onClick={disconnect}>change account</button></div></div> : <GitHubDataView data={state.data} username={config.username} onDisconnect={disconnect} />}
   </Panel>
-}
+})
 
 function GitHubSetup({ username, token, onUsernameChange, onTokenChange, onSubmit }) {
   return <form className="github-setup" onSubmit={onSubmit}>
@@ -1203,7 +1203,7 @@ async function fetchCalendarList(accessToken, signal) {
     .sort((a, b) => (b.primary - a.primary) || a.summary.localeCompare(b.summary))
 }
 
-function CalendarPanel({ index }) {
+const CalendarPanel = memo(function CalendarPanel({ index }) {
   const [clientId, setClientId] = useState(readCalendarClientId)
   const [draftClientId, setDraftClientId] = useState(clientId)
   const [editingClientId, setEditingClientId] = useState(!clientId)
@@ -1365,7 +1365,7 @@ function CalendarPanel({ index }) {
       )}
     </Panel>
   )
-}
+})
 
 const NOTES_STORAGE_KEY = 'start.notes'
 
@@ -1387,7 +1387,7 @@ function readNotes() {
   }
 }
 
-function NotesPanel({ index }) {
+const NotesPanel = memo(function NotesPanel({ index }) {
   const [notes, setNotes] = useState(readNotes)
   const [savedAt, setSavedAt] = useState(null)
   const saveTimerRef = useRef(null)
@@ -1453,6 +1453,6 @@ function NotesPanel({ index }) {
       </div>
     </Panel>
   )
-}
+})
 
 createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
