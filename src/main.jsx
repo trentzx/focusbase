@@ -318,6 +318,8 @@ async function loadGitHubPullRequests(username, token, signal) {
   const ownedRepositories = await githubPages(`https://api.github.com/users/${encodeURIComponent(username)}/repos?type=owner&sort=updated&direction=desc`, token, signal)
   const repoNames = ownedRepositories
     .filter((repository) => repository.owner?.login?.toLowerCase() === username.toLowerCase())
+    // open_issues_count covers issues and pull requests, so a zero rules out open PRs.
+    .filter((repository) => repository.open_issues_count !== 0)
     .map((repository) => repository.full_name)
     .filter(Boolean)
   const repositories = []
