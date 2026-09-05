@@ -663,7 +663,7 @@ function App() {
         <SystemFooter savedAt={savedAt} assignments={assignments} weatherStatus={weatherStatus} focusStatus={focusStatus} />
       </div>
       {selectedTask && <TaskModal task={selectedTask} onClose={closeTaskModal} onToggle={toggleTask} onSave={updateTask} onDelete={deleteTask} />}
-      <ChatBar tasks={tasks} assignments={assignments} onCreateTasks={createTasksFromPrompt} />
+      <ChatBar tasks={tasks} assignments={assignments} weather={weather} weatherStatus={weatherStatus} onCreateTasks={createTasksFromPrompt} />
     </div>
   )
 }
@@ -819,8 +819,8 @@ function TaskModal({ task, onClose, onToggle, onSave, onDelete }) {
 
 const suggestedPrompts = [
   'Plan my afternoon around what’s due',
-  'Which PR should I unblock first?',
-  'Summarize my week',
+  'What should I start with right now?',
+  'Summarize my assignment queue',
 ]
 
 const CHAT_ACTIVITY_LABELS = ['Thinking', 'Combobulating', 'Checking the dashboard', 'Writing']
@@ -889,7 +889,7 @@ async function streamQwenChat(messages, onChunk, signal) {
   }
 }
 
-function ChatBar({ tasks, assignments, onCreateTasks }) {
+function ChatBar({ tasks, assignments, weather, weatherStatus, onCreateTasks }) {
   const [isOpen, setIsOpen] = useState(true)
   const [draft, setDraft] = useState('')
   const [messages, setMessages] = useState([])
@@ -920,7 +920,10 @@ function ChatBar({ tasks, assignments, onCreateTasks }) {
     const prompt = value.trim()
     if (!prompt || isStreaming) return
     const assistantId = Date.now()
-    const context = `Dashboard context:\nFocus tasks:\n${JSON.stringify(tasks)}\n\nAssignment queue:\n${JSON.stringify(assignments)}`
+    const forecast = weatherStatus === 'live'
+      ? `\n\nWeather in ${weather.location}: ${weather.temp}°C, feels like ${weather.feelsLike}°C, ${weather.condition.toLowerCase()}, high ${weather.high}°C, low ${weather.low}°C.`
+      : ''
+    const context = `Dashboard context:\nFocus tasks:\n${JSON.stringify(tasks)}\n\nAssignment queue:\n${JSON.stringify(assignments)}${forecast}`
     const history = messages.filter((message) => message.role === 'user' || (message.role === 'assistant' && message.content)).slice(-8).map((message) => ({ role: message.role, content: message.content }))
     setMessages((current) => [...current, { role: 'user', content: prompt }, { id: assistantId, role: 'assistant', content: '', thinking: '', phase: 'thinking', activity: CHAT_ACTIVITY_LABELS[0] }])
     setDraft('')
@@ -990,7 +993,7 @@ function ChatBar({ tasks, assignments, onCreateTasks }) {
       <div ref={scrollRef} className="assistant-messages" aria-live="polite" aria-busy={isStreaming}>
         {!messages.length ? <div className="assistant-empty-state">
           <p><span className="accent-text">assistant</span> connected to this dashboard.</p>
-          <p>It can see your focus list, assignment queue, open pull requests, and today’s forecast. Ask it to triage, plan, or explain anything on screen.</p>
+          <p>It can see your focus list, assignment queue, and today’s forecast. Ask it to triage, plan, or explain any of them.</p>
           <div className="assistant-prompts">{suggestedPrompts.map((prompt) => <button key={prompt} type="button" onClick={() => send(prompt)}><span aria-hidden="true">&gt;</span>{prompt}</button>)}</div>
         </div> : messages.map((message, index) => message.role === 'user' ? <div className="assistant-user-message" key={`${message.role}-${index}`}>{message.content}</div> : <div className="assistant-response" key={message.id}>
           <button type="button" className="assistant-thinking-toggle" onClick={() => setThinkingOpen((value) => !value)} aria-expanded={thinkingOpen}><span aria-hidden="true">›</span>{message.phase === 'done' ? `Thought for ${message.thoughtSeconds || 1}s` : message.activity || 'Thinking'}</button>
