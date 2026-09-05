@@ -1009,7 +1009,7 @@ const ChatBar = memo(function ChatBar({ tasks, assignments, weather, weatherStat
         <input id="assistant-input" value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="ask about your day..." />
         {isStreaming ? <button type="button" className="assistant-send" onClick={stop} aria-label="Stop generating">■</button> : <button type="submit" className="assistant-send" disabled={!draft.trim()} aria-label="Send message">↥</button>}
       </form>
-      <p className="assistant-hint">enter to send · shift+enter for newline · reads your focus list, courses, repos &amp; forecast</p>
+      <p className="assistant-hint">enter to send · shift+enter for newline · reads your focus list, courses &amp; forecast</p>
     </> : <button type="button" className="assistant-collapsed" onClick={() => setIsOpen(true)} aria-label="Open assistant" aria-expanded="false"><span aria-hidden="true">⇥</span><span>assistant</span>{isStreaming ? <i aria-hidden="true" /> : null}</button>}
   </aside>
 })
